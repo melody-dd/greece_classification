@@ -1,0 +1,143 @@
+---
+title: "Classification-2"
+author: "Dong Ding"
+date: "3/24/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Y: motality types
+
+#### X: Age, Year, Gender, Air pollution compounds.
+
+##### Load Library
+```{r message=FALSE}
+library(caret)
+library(MASS)
+library(rpart)
+library(randomForest)
+library(tidyverse)
+library(factoextra)
+```
+
+##### Load data
+```{r}
+library(readxl)
+data<- read_excel("data/Mortality.xlsx")
+data %>%
+  mutate(Gender = as.factor(Gender),
+         Year = as.factor(Year)) %>%
+  select(-"Area") %>%
+  mutate(Mortality = recode(Mortality,
+                            "1" = "0",
+                            "2" = "0",
+                            "3" = "0",
+                            "4" = "0",
+                            "5" = "0",
+                            "6" = "0",
+                            "9" = "0",
+                            "10" = "0",
+                            "12" = "0",
+                            "13" = "0",
+                            "14" = "0",
+                            "15" = "0",
+                            "16" = "0",
+                            "19" = "0",
+                            "20" = "0",
+                            "7" = "1",
+                            "17" = "1",
+                            "18" = "1"))->
+  mortality
+mortality
+```
+
+# PCA analysis
+```{r}
+pca <- prcomp(mortality[c(3,5:8)], scale = TRUE)
+summary(pca)
+
+library(factoextra)
+# Eigenvalues
+eig.val <- get_eigenvalue(pca)
+eig.val
+# Results for Variables
+res.var <- get_pca_var(pca)
+res.var$coord          # Coordinates
+res.var$contrib        # Contributions to the PCs
+res.var$cos2           # Quality of representation 
+
+mortality %>%
+  mutate(pc1 = 0.006824704*Age + 35.815540063*PM10 + 15.916026006* SO2 +27.481165029*NO2 +20.780444198 * NO,
+         pc2 = 0.7609687*Age + 10.5580866*PM10 + 43.7370144* SO2 +17.2288916*NO2 +27.7150388 * NO,
+         pc3 = 99.19105443*Age + 0.04860598*PM10 + 0.28520401* SO2 +0.06754610*NO2 +0.40758948 * NO) ->
+  data
+data
+```
+
+k-fold LDA analysis play with prior probability
+```{r}
+vlda = function(v,formula,data,cl){
+   require(MASS)
+   grps = cut(1:nrow(data),v,labels=FALSE)[sample(1:nrow(data))]
+   pred = lapply(1:v,function(i,formula,data){
+	    omit = which(grps == i)
+	    z = lda(formula,data=data[-omit,])
+            predict(z,data[omit,],prior = c(1,1)/2)
+	    },formula,data)
+   wh = unlist(lapply(pred,function(pp)pp$class))
+   table(wh,cl[order(grps)])
+}
+
+vlda(10,as.factor(Mortality) ~ Gender + pc1 +pc2 +pc3,data,data$Mortality) 
+
+#k-fold cross validation
+k <- 10
+folds <- cut(seq(1,nrow(data)),breaks = k, labels =FALSE)
+set.seed(1)
+cv.lda <- sapply(1:k, FUN = function(i){
+  testID <- which (folds == i, arr.ind = TRUE)
+  test <- data[testID, ]
+  train <- data[-testID, ]
+  ldaf <- lda(as.factor(Mortality) ~ Gender + pc1 +pc2, data = train,prior = c(1,1)/2 )
+  lda.pred <- predict(ldaf,test)
+  cv.est.lda <- mean(lda.pred$class == test$Mortality)
+  return(cv.est.lda)
+})
+mean(cv.lda)
+```
+
+k-fold QDA analysis play with prior probability
+```{r}
+vqda = function(v,formula,data,cl){
+   require(MASS)
+   grps = cut(1:nrow(data),v,labels=FALSE)[sample(1:nrow(data))]
+   pred = lapply(1:v,function(i,formula,data){
+	    omit = which(grps == i)
+	    z = qda(formula,data=data[-omit,])
+            predict(z,data[omit,],prior = c(1,1)/2)
+	    },formula,data)
+   wh = unlist(lapply(pred,function(pp)pp$class))
+   table(wh,cl[order(grps)])
+}
+
+vqda(10,as.factor(Mortality) ~ Gender + pc1 +pc2 +pc3,data,data$Mortality) 
+
+#k-fold cross validation
+k <- 10
+folds <- cut(seq(1,nrow(data)),breaks = k, labels =FALSE)
+set.seed(1)
+cv.qda <- sapply(1:k, FUN = function(i){
+  testID <- which (folds == i, arr.ind = TRUE)
+  test <- data[testID, ]
+  train <- data[-testID, ]
+  qdaf <- qda(as.factor(Mortality) ~ Gender + pc1 +pc2, data = train,prior = c(1,1)/2 )
+  qda.pred <- predict(qdaf,test)
+  cv.est.qda <- mean(qda.pred$class == test$Mortality)
+  return(cv.est.qda)
+})
+mean(cv.qda)
+```
+
